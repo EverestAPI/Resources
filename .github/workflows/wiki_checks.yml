@@ -1,0 +1,18 @@
+name: Wiki Quality Checks
+
+on:
+  schedule:
+    - cron: "0 12 * * 1,3,5"
+
+jobs:
+  test:
+    name: Run Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone GitHub Wiki
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.repository }}.wiki
+
+      - name: Verify link integrity
+        uses: gaurav-nelson/github-action-markdown-link-check@d95b161
