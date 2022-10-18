@@ -95,4 +95,4 @@ jobs:
             -d "$(jq -n \
               --argjson outcomes "$OUTCOMES" \
               --arg workflow_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-              '{contents: "[Everest Wiki has failing checks](\($workflow_url))\n\($outcomes)"}')"
+              '{content: "[Everest Wiki has failing checks](\($workflow_url))\n\($outcomes)"}')"
