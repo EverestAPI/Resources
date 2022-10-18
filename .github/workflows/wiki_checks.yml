@@ -1,8 +1,9 @@
 name: Wiki Quality Checks
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "0 12 * * 1,3,5"
+    - cron: "0 18 * * 1,3,5"
 
 jobs:
   test:
@@ -10,9 +11,86 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone GitHub Wiki
+        id: checkout
         uses: actions/checkout@v3
         with:
           repository: ${{ github.repository }}.wiki
 
+      - name: Install perl file-rename
+        run: |
+          sudo apt update
+          sudo apt install rename
+
+      - name: Flatten directory structure and strip extensions
+        run: |
+          mkdir .flattened
+          cp **/*.md .flattened
+          rename 's/\.md$//' .flattened/*.md
+
       - name: Verify link integrity
-        uses: gaurav-nelson/github-action-markdown-link-check@d95b161
+        id: check-link-integrity
+        uses: gaurav-nelson/github-action-markdown-link-check@d95b1613ef2337a80f9860814259ece511e0004e
+        with:
+          use-quiet-mode: 'yes'
+          folder-path: '.flattened'
+          file-extension: '*'  # Not possible to specify no extension, but "**" works
+
+      - name: Check marked external links
+        id: check-external-link-indicator
+        if: (success() || failure()) && steps.checkout.outcome == 'success'
+        run: |
+          MISSING="$(grep --perl-regexp --only-matching --line-number --recursive '(?<!!)\[((?!:link:)[^][])*?\]\(https?://.*?\)' .flattened)"
+
+          if [ -n "$MISSING" ]; then
+            echo "::error ::External links are missing indicators"
+            echo "$MISSING"
+            exit 1
+          fi
+
+      - name: Install linters
+        id: install-linters
+        if: (success() || failure()) && steps.checkout.outcome == 'success'
+        run: |
+          sudo apt-get install yamllint
+
+
+      - name: Lint markdown code blocks
+        id: check-markdown-codeblocks
+        if: (success() || failure()) && steps.install-linters.outcome == 'success'
+        run: |
+          YAML_ERRORS="$(sed -n '/```yaml/,/```/ p' **/*.md | sed '/```yaml/ d' | \
+            sed 's/```/`/' | \
+            xargs --delimiter '`' --max-args 1 \
+            sh -c 'echo "$*" | yamllint --no-warnings --config-data relaxed -' _)"
+
+
+      - name: Install git-filter-repo
+        id: install-git-filter-repo
+        if: (success() || failure()) && steps.checkout.outcome == 'success'
+        run: |
+          sudo apt-get install git-filter-repo
+
+      - name: Check for renamed files
+        id: check-renamed-files
+        if: (success() || failure()) && steps.install-git-filter-repo.outcome == 'success'
+        run: |
+          git-filter-repo --analyze
+          if [ ! -s .git/filter-repo/analysis/renames.txt ]; then
+            echo "::error ::Renamed files are present in the repo!"
+            cat .git/filter-repo/analysis/renames.txt
+            exit 1
+          fi
+
+      - name: Report issues
+        if: faliure()
+        run: |
+          OUTCOMES="$(echo '${{ steps }}' | jq 'with_entries(select(.key | startswith("check")) | .value |= .outcome))'"
+
+          curl \
+            -X POST \
+            -H "Content-Type: application/json" \
+            "$WEBHOOK_URL" \
+            -d "$(jq -n \
+              --argjson outcomes "$OUTCOMES" \
+              --arg workflow_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              '{contents: "[Everest Wiki has failing checks](\($workflow_url))\n\($outcomes)"}'
