@@ -86,4 +86,4 @@ jobs:
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           STEPS_CONTEXT: ${{ toJSON(steps) }}
-        run: .github/scripts/send_webhook.sh
+        run: ${GITHUB_WORKSPACE}/.github/scripts/send_webhook.sh
