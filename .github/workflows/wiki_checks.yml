@@ -82,7 +82,7 @@ jobs:
           fi
 
       - name: Report issues
-        if: faliure()
+        if: failure()
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         run: |
