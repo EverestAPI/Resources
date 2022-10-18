@@ -86,7 +86,7 @@ jobs:
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         run: |
-          OUTCOMES="$(echo '${{ steps }}' | jq 'with_entries(select(.key | startswith("check")) | .value |= .outcome)')"
+          OUTCOMES="$(echo '${{ toJSON(steps) }}' | jq 'with_entries(select(.key | startswith("check")) | .value |= .outcome)')"
 
           curl \
             -X POST \
