@@ -85,14 +85,5 @@ jobs:
         if: failure()
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        run: |
-          OUTCOMES="$(echo '${{ toJSON(steps) }}' | jq 'with_entries(select(.key | startswith("check")) | .value |= .outcome)')"
-
-          curl \
-            -X POST \
-            -H "Content-Type: application/json" \
-            "$WEBHOOK_URL" \
-            -d "$(jq -n \
-              --argjson outcomes "$OUTCOMES" \
-              --arg workflow_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-              '{content: "[Everest Wiki has failing checks](\($workflow_url))\n\($outcomes)"}')"
+          STEPS_CONTEXT: ${{ toJSON(steps) }}
+        run: .github/scripts/send_webhook.sh
