@@ -16,70 +16,64 @@ jobs:
         with:
           repository: ${{ github.repository }}.wiki
 
-      - name: Install perl file-rename
-        run: |
-          sudo apt update
-          sudo apt install rename
-
-      - name: Flatten directory structure and strip extensions
-        run: |
-          mkdir .flattened
-          cp **/*.md .flattened
-          rename 's/\.md$//' .flattened/*.md
 
       - name: Verify link integrity
         id: check-link-integrity
-        uses: gaurav-nelson/github-action-markdown-link-check@d95b1613ef2337a80f9860814259ece511e0004e
-        with:
-          use-quiet-mode: 'yes'
-          folder-path: '.flattened'
-          file-extension: '*'  # Not possible to specify no extension, but "**" works
+        run: |
+          set -o pipefail
+          ./.scripts/check-markdown-links | ./.scripts/log-github | \
+            tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
+
 
       - name: Check marked external links
-        id: check-external-link-indicator
+        id: check-external-link-indicators
         if: (success() || failure()) && steps.checkout.outcome == 'success'
         run: |
-          MISSING="$(grep --perl-regexp --only-matching --line-number --recursive '(?<!!)\[((?!:link:)[^][])*?\]\(https?://.*?\)' .flattened)"
+          set -o pipefail
+          ./.scripts/check-link-indicators | ./.scripts/log-github --level notice | \
+            tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
+          exit 0
 
-          if [ -n "$MISSING" ]; then
-            echo "::error ::External links are missing indicators"
-            echo "$MISSING"
-            exit 1
-          fi
 
       - name: Install linters
-        id: install-linters
+        id: setup-linters
         if: (success() || failure()) && steps.checkout.outcome == 'success'
         run: |
           sudo apt-get install yamllint
 
-
       - name: Lint markdown code blocks
-        id: check-markdown-codeblocks
-        if: (success() || failure()) && steps.install-linters.outcome == 'success'
+        id: lint-code-blocks
+        if: (success() || failure()) && steps.setup-linters.outcome == 'success'
         run: |
-          YAML_ERRORS="$(sed -n '/```yaml/,/```/ p' **/*.md | sed '/```yaml/ d' | \
-            sed 's/```/`/' | \
-            xargs --delimiter '`' --max-args 1 \
-            sh -c 'echo "$*" | yamllint --no-warnings --config-data relaxed -' _)"
+          set -o pipefail
+          ./.scripts/lint-code-blocks | ./.scripts/log-github | \
+            tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
 
 
       - name: Install git-filter-repo
-        id: install-git-filter-repo
+        id: setup-git-filter-repo
         if: (success() || failure()) && steps.checkout.outcome == 'success'
         run: |
           sudo apt-get install git-filter-repo
+          exit 0
 
       - name: Check for renamed files
         id: check-renamed-files
-        if: (success() || failure()) && steps.install-git-filter-repo.outcome == 'success'
+        if: (success() || failure()) && steps.setup-git-filter-repo.outcome == 'success'
         run: |
-          git-filter-repo --analyze
-          if [ ! -s .git/filter-repo/analysis/renames.txt ]; then
-            echo "::error ::Renamed files are present in the repo!"
-            cat .git/filter-repo/analysis/renames.txt
-            exit 1
-          fi
+          set -o pipefail
+          ./.scripts/check-renamed-files | ./.scripts/log-github --level warning | \
+            tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
+
+
+      - name: Check for duplicate files
+        id: check-duplicate-files
+        if: (success() || failure()) && steps.checkout.outcome == 'success'
+        run: |
+          set -o pipefail
+          ./.scripts/check-duplicate-files | ./.scripts/log-github | \
+            tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
+
 
       - name: Report issues
         if: failure()
@@ -90,29 +84,60 @@ jobs:
           echo "$STEPS_CONTEXT" | jq --raw-output \
             --arg workflow_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg timestamp "$(date --iso-8601=minutes)" \
-          '[
+          '
+          { embeds: [
+          ([
             to_entries[] |
-            select(.key | startswith("check-")) |
-            .value |= .outcome |
+            select(
+              (
+                .key == "checkout" or
+                (.key | startswith("setup-"))
+              ) and .value.outcome != "success"
+            ) |
             {
               name: .key,
-              value,
-              inline: false
+              value: .value.outcome,
+              inline: false,
             }
-          ] |
-          {
-            embeds: [{
-              title: "Everest Wiki Workflow Run",
-              description: "Checks failed",
-              url: $workflow_url,
-              color: 16711680,
-              fields: .,
-              timestamp: $timestamp,
-              footer: {
-                text: "This Action is run Mon/Wed/Fri at 18:00UTC"
-              }
-            }],
-            allowed_mentions: ({
-              parse: []
-            })
-          }' | curl -X POST -H "Content-Type: application/json" --data @- "$WEBHOOK_URL"
+          ] | if . | any then . | {
+            title: "Everest Wiki Workflow Run",
+            description: "**:rotating_light:!!SETUP FAILED!!:rotating_light:**",
+            url: $workflow_url,
+            color: 16711680,
+            fields: .,
+            timestamp: $timestamp,
+            footer: {
+              text:  "This Action is run Mon/Wed/Fri at 18:00UTC"
+            }
+          } else [] end),
+          [
+            to_entries[] |
+            select(
+              (
+                .key == "checkout" or
+                (.key | startswith("setup-"))
+              ) | not
+            ) |
+            {
+              name: .key,
+              value: (
+                .value.outcome + 
+                if .value.outcome == "faliure" then
+                  " (" + .value.outputs["msg-count"] + " issues)"
+                else "" end
+              ),
+              inline: false,
+            }
+          ] | {
+            title: "Everest Wiki Workflow Run",
+            description: "**Checks Failed:**",
+            url: $workflow_url,
+            color: 16711680,
+            fields: .,
+            timestamp: $timestamp,
+            footer: {
+              text:  "This Action is run Mon/Wed/Fri at 18:00UTC"
+            }
+          }
+          ], allowed_mentions: ({parse: []})}
+          ' | curl -X POST -H "Content-Type: application/json" --data @- "$WEBHOOK_URL"
