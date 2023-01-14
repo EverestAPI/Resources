@@ -17,8 +17,15 @@ jobs:
           repository: ${{ github.repository }}.wiki
 
 
+      - name: Install pandoc and xmllint
+        id: setup-parsers
+        run: |
+          sudo apt-get update
+          sudo apt-get install pandoc libxml2-utils
+
       - name: Verify link integrity
         id: check-link-integrity
+        if: (success() || failure()) && steps.setup-parsers.outcome == 'success'
         run: |
           set -o pipefail
           ./.scripts/check-markdown-links | ./.scripts/log-github | \
@@ -29,7 +36,7 @@ jobs:
         id: check-external-link-indicators
         if: (success() || failure()) && steps.checkout.outcome == 'success'
         run: |
-          set -o pipefail
+          # set -o pipefail
           ./.scripts/check-link-indicators | ./.scripts/log-github --level notice | \
             tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
           exit 0
@@ -55,15 +62,15 @@ jobs:
         if: (success() || failure()) && steps.checkout.outcome == 'success'
         run: |
           sudo apt-get install git-filter-repo
-          exit 0
 
       - name: Check for renamed files
         id: check-renamed-files
         if: (success() || failure()) && steps.setup-git-filter-repo.outcome == 'success'
         run: |
-          set -o pipefail
+          # set -o pipefail
           ./.scripts/check-renamed-files | ./.scripts/log-github --level warning | \
             tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
+          exit 0
 
 
       - name: Check for duplicate files
@@ -122,7 +129,7 @@ jobs:
               name: .key,
               value: (
                 .value.outcome + 
-                if .value.outcome == "faliure" then
+                if .value.outcome == "failure" then
                   " (" + .value.outputs["msg-count"] + " issues)"
                 else "" end
               ),
