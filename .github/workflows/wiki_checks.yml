@@ -88,8 +88,10 @@ jobs:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           STEPS_CONTEXT: ${{ toJSON(steps) }}
         run: |
+          WORKFLOW_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           echo "$STEPS_CONTEXT" | jq --raw-output \
-            --arg workflow_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg workflow_url "$WORKFLOW_URL" \
+            --arg job_url "$WORKFLOW_URL/jobs/$GITHUB_JOB"
             --arg timestamp "$(date --iso-8601=minutes)" \
           '
           { embeds: [
@@ -109,15 +111,15 @@ jobs:
           ] | if . | any then . | {
             title: "Everest Wiki Workflow Run",
             description: "**:rotating_light:!!SETUP FAILED!!:rotating_light:**",
-            url: $workflow_url,
+            url: $job_url,
             color: 16711680,
             fields: .,
             timestamp: $timestamp,
             footer: {
               text:  "This Action is run Mon/Wed/Fri at 18:00UTC"
             }
-          } else [] end),
-          [
+          } else empty end),
+          ([
             to_entries[] |
             select(
               (
@@ -145,6 +147,6 @@ jobs:
             footer: {
               text:  "This Action is run Mon/Wed/Fri at 18:00UTC"
             }
-          }
+          })
           ], allowed_mentions: ({parse: []})}
           ' | curl -X POST -H "Content-Type: application/json" --data @- "$WEBHOOK_URL"
