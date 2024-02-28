@@ -39,7 +39,6 @@ jobs:
           # set -o pipefail
           ./.scripts/check-link-indicators | ./.scripts/log-github --level notice | \
             tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
-          exit 0
 
 
       - name: Install linters
@@ -70,7 +69,6 @@ jobs:
           # set -o pipefail
           ./.scripts/check-renamed-files | ./.scripts/log-github --level warning | \
             tee >(wc -l | sed 's/^/msg-count=/' >> $GITHUB_OUTPUT)
-          exit 0
 
 
       - name: Check for duplicate files
